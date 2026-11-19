@@ -1,0 +1,16 @@
+# Sobe a API e o site. O banco NÃO entra aqui: ele fica no alwaysdata.
+# "name" faz as imagens se chamarem projeto-final-api e projeto-final-web
+name: projeto-final
+services:
+  api:
+    build: ./backend
+    ports: ["8080:8080"]
+    env_file: .env
+  web:
+    build:
+      context: ./frontend
+      args:
+        # o NAVEGADOR chama a API, por isso é localhost (e não "api")
+        VITE_API_URL: http://localhost:8080
+    ports: ["3000:80"]
+    depends_on: [api]

@@ -1,0 +1,99 @@
+### Testes das rotas da API (extensão REST Client do VS Code: clique em "Send Request")
+@api = http://localhost:8080
+
+########## PRODUTOS ##########
+
+### Lista todos
+GET {{api}}/api/produtos
+
+### Busca um
+GET {{api}}/api/produtos/1
+
+### Cadastra
+POST {{api}}/api/produtos
+Content-Type: application/json
+
+{ "nome": "Mouse sem fio", "preco": 89.9, "estoque": 30 }
+
+### Altera
+PUT {{api}}/api/produtos/1
+Content-Type: application/json
+
+{ "nome": "Teclado mecânico", "preco": 249.9, "estoque": 8 }
+
+### Exclui
+DELETE {{api}}/api/produtos/1
+
+########## PESQUISAS ##########
+
+### Lista as pesquisas (com total de respostas)
+GET {{api}}/api/formularios
+
+### Busca uma pesquisa
+GET {{api}}/api/formularios/1
+
+### Cria uma pesquisa com ramificação
+# "melhorar" só aparece se a nota for menor que 7
+POST {{api}}/api/formularios
+Content-Type: application/json
+
+{
+  "titulo": "Pesquisa NPS de teste",
+  "descricao": "Leva menos de 1 minuto.",
+  "modo": "conversacional",
+  "perguntaRamificacao": "plano",
+  "mensagemFinal": "Obrigado pela sua opinião!",
+  "tema": { "logo": "", "corPrimaria": "#6d28d9", "corFundo": "#f5f3ff", "corTexto": "#1f2937", "fonte": "Inter", "cantos": 12 },
+  "perguntas": [
+    { "id": "plano", "tipo": "unica", "titulo": "Qual é o seu plano?", "obrigatoria": true, "opcoes": ["Básico", "Pro", "Empresa"] },
+    { "id": "nota", "tipo": "nps", "titulo": "De 0 a 10, quanto você nos recomendaria?", "obrigatoria": true },
+    { "id": "melhorar", "tipo": "paragrafo", "titulo": "O que podemos melhorar?", "obrigatoria": false,
+      "condicoes": [{ "perguntaId": "nota", "operador": "menor", "valor": 7 }] }
+  ]
+}
+
+### Altera uma pesquisa (envia a pesquisa inteira)
+PUT {{api}}/api/formularios/1
+Content-Type: application/json
+
+{
+  "titulo": "Pesquisa NPS (alterada)",
+  "modo": "classico",
+  "ativo": true,
+  "tema": { "logo": "", "corPrimaria": "#0f766e", "corFundo": "#f0fdfa", "corTexto": "#134e4a", "fonte": "Poppins", "cantos": 20 },
+  "perguntas": [
+    { "id": "nota", "tipo": "nps", "titulo": "De 0 a 10, quanto você nos recomendaria?", "obrigatoria": true }
+  ]
+}
+
+### Duplica uma pesquisa
+POST {{api}}/api/formularios/1/duplicar
+
+### Conta uma visualização
+POST {{api}}/api/formularios/1/visualizacoes
+
+### Exclui a pesquisa e as respostas dela
+DELETE {{api}}/api/formularios/2
+
+########## RESPOSTAS ##########
+
+### Lista as respostas
+GET {{api}}/api/formularios/1/respostas
+
+### Envia uma resposta (nota 4 => "melhorar" aparece e é aceita)
+POST {{api}}/api/formularios/1/respostas
+Content-Type: application/json
+
+{ "dados": { "plano": "Pro", "nota": 4, "melhorar": "O suporte demora." }, "duracaoSegundos": 35 }
+
+### Envia uma resposta inválida (falta a obrigatória "nota": deve dar 400)
+POST {{api}}/api/formularios/1/respostas
+Content-Type: application/json
+
+{ "dados": { "plano": "Pro" } }
+
+### Baixa o Excel (o REST Client mostra o arquivo; no navegador, use o botão do dashboard)
+GET {{api}}/api/formularios/1/exportar
+
+### Exclui uma resposta
+DELETE {{api}}/api/respostas/1
