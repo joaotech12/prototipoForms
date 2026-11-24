@@ -51,6 +51,23 @@ localhost:3000        localhost:8080         (online, fora do Docker)
 - `src/services/api.js` tem a função base `pedir()` (lança erro se a resposta não for ok e
   retorna `null` em 204). Novas chamadas devem usá-la. Alias `@` = `frontend/src`.
 - `components/FormularioPublico.vue` é usado no link público e na prévia do editor (prop `previa`).
+- **Tema (personalização)**: os campos ficam em três lugares que devem andar juntos:
+  `TemaDto` (API, todos os novos opcionais), `TEMA_PADRAO` em `tipos.js` e `variaveisDoTema()` em `tema.js`,
+  que transforma o tema em variáveis CSS `--f-*` usadas por `FormularioPublico.vue` e `CampoPergunta.vue`.
+  `temaCompleto()` completa pesquisas antigas com o padrão. Imagens e links passam por `imagemSegura()`
+  (só `data:image` ou `http(s)`), e o DTO confere a mesma regra.
+- **Organização das pesquisas**: `pastaId`, `etiquetas`, `arquivado` e `favorito` ficam na tabela
+  `formularios`. Mudanças de organização vão pela rota `POST /api/formularios/lote` (uma ou várias pesquisas),
+  que não altera `atualizadoEm`. No PUT, `pastaId`/`etiquetas` só mudam se vierem no corpo. O Painel aplica
+  a mudança na tela antes da resposta da API (`aplicarNaTela`) e depois recarrega a lista.
+- **Funil de abandono**: `ResponderView.vue` gera um UUID por visita (guardado no `sessionStorage`), chama
+  `POST /progresso` ao abrir e, 1 s depois de cada mudança, com os ids das perguntas respondidas. A resposta
+  final manda o mesmo `sessao`, e a API marca a visita como concluída (`sessoes.service.ts`). Falhas no
+  funil são ignoradas de propósito: nunca podem atrapalhar quem está respondendo.
+- **Cálculos do dashboard** ficam todos em `services/estatisticas.js` (funções puras, sem chamadas HTTP):
+  `aplicarFiltros`, `naJanela`, `calcularFunil`, `mapaDeCalor`, `evolucaoSemanal`, `variacao`, `gerarInsights`.
+- O painel da aba Aparência é `components/PersonalizacaoTema.vue`; imagens usam `SeletorImagem.vue`,
+  que reduz o arquivo no navegador (`services/imagens.js`) antes de virar base64.
 
 ## Adicionar uma nova entidade (caminho completo)
 1. Pasta `backend/src/<entidade>/` com entity, DTO, service, controller (`@Controller('api/...')`)

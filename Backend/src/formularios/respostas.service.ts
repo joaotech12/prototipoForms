@@ -5,12 +5,14 @@ import { FormulariosService } from './formularios.service';
 import { aplicarRamificacao, validarValor } from './regras';
 import { RespostaDto } from './resposta.dto';
 import { Resposta } from './resposta.entity';
+import { SessoesService } from './sessoes.service';
 
 @Injectable()
 export class RespostasService {
   constructor(
     @InjectRepository(Resposta) private readonly respostas: Repository<Resposta>,
     private readonly formularios: FormulariosService,
+    private readonly sessoes: SessoesService,
   ) {}
 
   async listar(formularioId: number) {
@@ -36,7 +38,10 @@ export class RespostasService {
       duracaoSegundos: corpo.duracaoSegundos ?? null,
       criadoEm: new Date(),
     });
-    return this.respostas.save(nova);
+    const salva = await this.respostas.save(nova);
+    // Funil: a visita chegou ao fim (as perguntas respondidas são as da resposta final)
+    if (corpo.sessao) await this.sessoes.concluir(formularioId, corpo.sessao, Object.keys(limpas));
+    return salva;
   }
 
   async excluir(id: number) {

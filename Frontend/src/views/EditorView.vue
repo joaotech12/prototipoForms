@@ -5,12 +5,22 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { onBeforeRouteLeave, useRoute, useRouter } from 'vue-router';
 import EditorPergunta from '@/components/EditorPergunta.vue';
 import FormularioPublico from '@/components/FormularioPublico.vue';
-import { alterarFormulario, buscarFormulario, criarFormulario, linkPublico } from '@/services/api';
+import PersonalizacaoTema from '@/components/PersonalizacaoTema.vue';
+import EditorEtiquetas from '@/components/EditorEtiquetas.vue';
+import { alterarFormulario, buscarFormulario, criarFormulario, linkPublico, listarPastas } from '@/services/api';
 import { avisar, avisarErro } from '@/services/avisos';
 import { copiaDoModelo } from '@/services/modelos';
 import { opcoesDaPergunta } from '@/services/regras';
-import { FONTES, PALETAS, carregarFonte } from '@/services/tema';
-import { TIPOS_DE_GRUPO, TIPOS_PERGUNTA, dadosParaEnvio, gerarId, novaPergunta, novoFormulario, temOpcoesEditaveis } from '@/services/tipos';
+import {
+  TIPOS_DE_GRUPO,
+  TIPOS_PERGUNTA,
+  dadosParaEnvio,
+  gerarId,
+  novaPergunta,
+  novoFormulario,
+  temOpcoesEditaveis,
+  temaCompleto,
+} from '@/services/tipos';
 
 const props = defineProps({ id: { type: String, default: '' } });
 const rota = useRoute();
@@ -28,7 +38,6 @@ const mostrarTipos = ref(false);
 const segurando = ref(null); // id da pergunta cuja alça foi pressionada
 const arrastando = ref(null);
 const alvoArraste = ref(null);
-const urlLogo = ref('');
 
 const alterado = computed(() => formulario.value && JSON.stringify(dadosParaEnvio(formulario.value)) !== original.value);
 const perguntas = computed(() => formulario.value?.perguntas ?? []);
@@ -42,10 +51,15 @@ async function carregar() {
       formulario.value = await buscarFormulario(props.id);
     } else {
       formulario.value = copiaDoModelo(rota.query.modelo) ?? novoFormulario();
+      // Criada de dentro de uma pasta do Painel (?pasta=3): já nasce nela
+      if (rota.query.pasta) formulario.value.pastaId = Number(rota.query.pasta);
     }
+    formulario.value.pastaId ??= null;
+    formulario.value.etiquetas ??= [];
+    // Pesquisas antigas ganham os campos novos de personalização com o valor padrão
+    formulario.value.tema = temaCompleto(formulario.value.tema);
     original.value = props.id ? JSON.stringify(dadosParaEnvio(formulario.value)) : '';
     selecionada.value = formulario.value.perguntas[0]?.id ?? null;
-    if (formulario.value.tema.logo && !formulario.value.tema.logo.startsWith('data:')) urlLogo.value = formulario.value.tema.logo;
   } catch (e) {
     erroCarga.value = e.message;
   } finally {
@@ -58,6 +72,10 @@ function conferir() {
   const f = formulario.value;
   if (!f.titulo.trim()) return 'Dê um título para a pesquisa';
   if (!f.perguntas.length) return 'Adicione pelo menos uma pergunta';
+  if (linkFinalInvalido.value) {
+    aba.value = 'config';
+    return 'O link da tela final precisa começar com http:// ou https://';
+  }
   for (const [i, p] of f.perguntas.entries()) {
     if (!p.titulo.trim()) {
       selecionada.value = p.id;
@@ -79,7 +97,7 @@ async function salvar() {
   if (salvando.value) return;
   const problema = conferir();
   if (problema) {
-    aba.value = 'perguntas';
+    if (aba.value !== 'config') aba.value = 'perguntas';
     avisar(problema, 'erro');
     return;
   }
@@ -163,42 +181,14 @@ function soltar(i) {
   segurando.value = null;
 }
 
-// ---------- Aparência ----------
-function aplicarPaleta(paleta) {
-  Object.assign(formulario.value.tema, { corPrimaria: paleta.corPrimaria, corFundo: paleta.corFundo, corTexto: paleta.corTexto });
-}
-
-// Reduz o logo para no máximo 400 px antes de guardar em base64 (fica leve no banco)
-function escolherLogo(evento) {
-  const arquivo = evento.target.files?.[0];
-  evento.target.value = '';
-  if (!arquivo) return;
-  if (!arquivo.type.startsWith('image/')) return avisar('Escolha um arquivo de imagem', 'erro');
-  if (arquivo.size > 5 * 1024 * 1024) return avisar('Imagem muito grande (máximo 5 MB)', 'erro');
-  const leitor = new FileReader();
-  leitor.onload = () => {
-    const imagem = new Image();
-    imagem.onload = () => {
-      const escala = Math.min(1, 400 / Math.max(imagem.width, imagem.height));
-      const tela = document.createElement('canvas');
-      tela.width = Math.round(imagem.width * escala);
-      tela.height = Math.round(imagem.height * escala);
-      tela.getContext('2d').drawImage(imagem, 0, 0, tela.width, tela.height);
-      formulario.value.tema.logo = tela.toDataURL('image/png');
-      urlLogo.value = '';
-    };
-    imagem.src = leitor.result;
-  };
-  leitor.readAsDataURL(arquivo);
-}
-function usarUrlLogo() {
-  formulario.value.tema.logo = urlLogo.value.trim();
-}
-
 function abrirAba(nome) {
   aba.value = nome;
-  if (nome === 'aparencia') FONTES.forEach(carregarFonte);
 }
+
+const linkFinalInvalido = computed(() => {
+  const link = formulario.value?.tema.linkFinal;
+  return Boolean(link) && !/^https?:\/\/\S+$/.test(link);
+});
 
 async function copiarLink() {
   try {
@@ -226,6 +216,12 @@ onBeforeRouteLeave(() => {
   if (alterado.value && !salvando.value) return window.confirm('Há alterações não salvas. Sair mesmo assim?');
   return true;
 });
+
+// Pastas para a seção "Organização" (se falhar, a seção só fica sem opções)
+const pastas = ref([]);
+listarPastas()
+  .then((lista) => (pastas.value = lista))
+  .catch(() => {});
 
 onMounted(() => {
   carregar();
@@ -322,75 +318,8 @@ onBeforeUnmount(() => {
           </div>
         </div>
 
-        <!-- Aparência -->
-        <div v-show="aba === 'aparencia'" class="grade">
-          <div class="cartao">
-            <h2>Logotipo</h2>
-            <div class="linha">
-              <div class="logo-previa">
-                <img v-if="formulario.tema.logo" :src="formulario.tema.logo" alt="Logotipo" />
-                <span v-else class="suave pequeno">sem logo</span>
-              </div>
-              <label class="botao">
-                📁 Enviar imagem
-                <input type="file" accept="image/*" hidden @change="escolherLogo" />
-              </label>
-              <button v-if="formulario.tema.logo" class="botao perigo" @click="formulario.tema.logo = ''">Remover</button>
-            </div>
-            <div class="linha" style="margin-top: 10px">
-              <input v-model="urlLogo" placeholder="...ou cole o endereço (URL) de uma imagem" @keydown.enter="usarUrlLogo" />
-              <button class="botao" @click="usarUrlLogo">Usar</button>
-            </div>
-          </div>
-
-          <div class="cartao">
-            <h2>Cores</h2>
-            <div class="paletas">
-              <button v-for="pal in PALETAS" :key="pal.nome" class="paleta" :title="pal.nome" @click="aplicarPaleta(pal)">
-                <span :style="{ background: pal.corFundo }"><i :style="{ background: pal.corPrimaria }"></i></span>
-                <small>{{ pal.nome }}</small>
-              </button>
-            </div>
-            <div class="cores">
-              <label v-for="c in [
-                { chave: 'corPrimaria', nome: 'Principal (botões)' },
-                { chave: 'corFundo', nome: 'Fundo' },
-                { chave: 'corTexto', nome: 'Texto' },
-              ]" :key="c.chave" class="campo">
-                <span>{{ c.nome }}</span>
-                <div class="linha">
-                  <input v-model="formulario.tema[c.chave]" type="color" />
-                  <input v-model.lazy="formulario.tema[c.chave]" maxlength="7" class="hex" />
-                </div>
-              </label>
-            </div>
-          </div>
-
-          <div class="cartao">
-            <h2>Fonte</h2>
-            <div class="fontes">
-              <button
-                v-for="fonte in FONTES"
-                :key="fonte"
-                class="fonte"
-                :class="{ ativa: formulario.tema.fonte === fonte }"
-                :style="{ fontFamily: `'${fonte}', sans-serif` }"
-                @click="formulario.tema.fonte = fonte"
-              >
-                <b>Aa</b><small>{{ fonte }}</small>
-              </button>
-            </div>
-          </div>
-
-          <div class="cartao">
-            <h2>Cantos</h2>
-            <div class="linha">
-              <input v-model.number="formulario.tema.cantos" type="range" min="0" max="28" style="flex: 1" />
-              <span class="amostra-canto" :style="{ borderRadius: formulario.tema.cantos + 'px', background: formulario.tema.corPrimaria }"></span>
-              <b style="width: 44px">{{ formulario.tema.cantos }}px</b>
-            </div>
-          </div>
-        </div>
+        <!-- Aparência (painel de personalização no estilo Tally) -->
+        <PersonalizacaoTema v-if="aba === 'aparencia'" :tema="formulario.tema" />
 
         <!-- Configurações -->
         <div v-show="aba === 'config'" class="grade">
@@ -421,9 +350,43 @@ onBeforeUnmount(() => {
             </select>
           </div>
 
-          <div class="cartao">
-            <h2>Mensagem final</h2>
-            <input v-model="formulario.mensagemFinal" maxlength="500" placeholder="Obrigado! Sua resposta foi registrada." />
+          <div class="cartao tela-final">
+            <h2>Tela final</h2>
+            <label class="campo">
+              <span>Mensagem de agradecimento</span>
+              <input v-model="formulario.mensagemFinal" maxlength="500" placeholder="Obrigado! Sua resposta foi registrada." />
+            </label>
+            <div class="duas">
+              <label class="campo">
+                <span>Botão com link (opcional)</span>
+                <input v-model.trim="formulario.tema.linkFinal" placeholder="https://seusite.com.br" />
+              </label>
+              <label class="campo">
+                <span>Texto do botão</span>
+                <input v-model="formulario.tema.textoLinkFinal" maxlength="40" placeholder="Voltar ao site" />
+              </label>
+            </div>
+            <p v-if="linkFinalInvalido" class="aviso-campo">O link precisa começar com http:// ou https://</p>
+            <label v-if="formulario.tema.linkFinal" class="interruptor">
+              <input v-model="formulario.tema.redirecionar" type="checkbox" />
+              <span class="trilho"></span>
+              Abrir o link sozinho 3 segundos depois de enviar
+            </label>
+          </div>
+
+          <div class="cartao tela-final">
+            <h2>Organização</h2>
+            <label class="campo">
+              <span>Pasta</span>
+              <select v-model="formulario.pastaId">
+                <option :value="null">— Sem pasta</option>
+                <option v-for="p in pastas" :key="p.id" :value="p.id">{{ p.nome }}</option>
+              </select>
+            </label>
+            <div class="campo">
+              <span>Etiquetas (até 10) — ajudam a encontrar a pesquisa no Painel</span>
+              <EditorEtiquetas v-model="formulario.etiquetas" />
+            </div>
           </div>
 
           <div class="cartao">
@@ -508,6 +471,10 @@ onBeforeUnmount(() => {
 .modo { text-align: left; display: flex; flex-direction: column; gap: 6px; padding: 14px; border: 1.5px solid var(--borda); border-radius: 12px; background: #fff; cursor: pointer; font: inherit; }
 .modo small { color: var(--texto-suave); line-height: 1.4; }
 .modo.ativo { border-color: var(--primaria); background: var(--primaria-suave); }
+.tela-final { display: flex; flex-direction: column; gap: 12px; }
+.tela-final h2 { margin-bottom: 0; }
+.duas { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.aviso-campo { color: #b45309; font-size: 0.82rem; }
 
 @media (max-width: 1050px) {
   .colunas { grid-template-columns: 1fr; }

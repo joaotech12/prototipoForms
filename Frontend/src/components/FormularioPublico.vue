@@ -4,13 +4,15 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch, watchEffect } from 'vue';
 import CampoPergunta from './CampoPergunta.vue';
 import { aplicarRamificacao, estaRespondida, validarValor } from '@/services/regras';
-import { carregarFonte, variaveisDoTema } from '@/services/tema';
+import { carregarFonte, imagemSegura, variaveisDoTema } from '@/services/tema';
+import { temaCompleto } from '@/services/tipos';
 
 const props = defineProps({
   formulario: { type: Object, required: true },
   previa: { type: Boolean, default: false },
   perguntaFoco: { type: String, default: '' }, // no editor: pergunta selecionada
   aoEnviar: { type: Function, default: async () => {} },
+  aoProgredir: { type: Function, default: () => {} }, // recebe os ids das perguntas já respondidas
 });
 
 const uid = Math.random().toString(36).slice(2, 7);
@@ -25,10 +27,15 @@ const inicio = ref(Date.now());
 const campoAtual = ref(null);
 const raiz = ref(null);
 let esperaAvanco = null;
+let esperaRedirecionar = null;
 
 const conversacional = computed(() => props.formulario.modo === 'conversacional');
-const tema = computed(() => props.formulario.tema ?? {});
+const tema = computed(() => temaCompleto(props.formulario.tema));
 const estilo = computed(() => variaveisDoTema(tema.value));
+// Só imagens e links seguros (data:image ou http/https) chegam ao HTML
+const logo = computed(() => imagemSegura(tema.value.logo));
+const capa = computed(() => imagemSegura(tema.value.capa));
+const linkFinal = computed(() => (/^https?:\/\/\S+$/.test(tema.value.linkFinal ?? '') ? tema.value.linkFinal : ''));
 const ramificacao = computed(() => aplicarRamificacao(props.formulario.perguntas ?? [], respostas));
 const visiveis = computed(() => ramificacao.value.visiveis);
 const atual = computed(() => visiveis.value[etapa.value] ?? null);
@@ -43,7 +50,10 @@ const progresso = computed(() => {
 const minutos = computed(() => Math.max(1, Math.round((props.formulario.perguntas?.length ?? 0) * 0.25)));
 const encerrado = computed(() => !props.previa && props.formulario.ativo === false);
 
-watchEffect(() => carregarFonte(tema.value.fonte));
+watchEffect(() => {
+  carregarFonte(tema.value.fonte);
+  carregarFonte(tema.value.fonteTitulo);
+});
 
 function responder(pergunta, valor) {
   respostas[pergunta.id] = valor;
@@ -135,9 +145,14 @@ async function enviar() {
   erroEnvio.value = '';
   try {
     const duracao = Math.round((Date.now() - inicio.value) / 1000);
+    clearTimeout(esperaProgresso); // a resposta final já conclui a visita no funil
     await props.aoEnviar({ ...ramificacao.value.limpas }, duracao);
     enviado.value = true;
     apagarRascunho();
+    // Tela final com redirecionamento automático (só no link público, nunca na prévia)
+    if (!props.previa && linkFinal.value && tema.value.redirecionar) {
+      esperaRedirecionar = setTimeout(() => window.location.assign(linkFinal.value), 3000);
+    }
   } catch (e) {
     erroEnvio.value = e.message;
   } finally {
@@ -177,6 +192,23 @@ watch(
   { deep: true },
 );
 
+// ---------- Funil: avisa quais perguntas já foram respondidas (1 s depois da última mudança) ----------
+let esperaProgresso = null;
+let ultimoProgresso = '';
+watch(
+  () => visiveis.value.filter((p) => estaRespondida(respostas[p.id])).map((p) => p.id),
+  (ids) => {
+    if (props.previa || enviado.value) return;
+    const chave = ids.join(',');
+    if (chave === ultimoProgresso) return;
+    clearTimeout(esperaProgresso);
+    esperaProgresso = setTimeout(() => {
+      ultimoProgresso = chave;
+      props.aoProgredir(ids);
+    }, 1000);
+  },
+);
+
 const retomado = ref(false);
 onMounted(() => {
   if (!props.previa) window.addEventListener('keydown', tecla);
@@ -195,6 +227,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener('keydown', tecla);
   clearTimeout(esperaAvanco);
+  clearTimeout(esperaRedirecionar);
+  clearTimeout(esperaProgresso);
 });
 
 // ---------- Prévia: acompanha a pergunta selecionada no editor ----------
@@ -222,13 +256,16 @@ watch(conversacional, () => {
 </script>
 
 <template>
-  <div ref="raiz" class="f-pagina" :class="{ previa, conversacional }" :style="estilo">
-    <div class="f-progresso" v-if="!encerrado"><div :style="{ width: progresso + '%' }"></div></div>
+  <div ref="raiz" class="f-pagina" :class="{ previa, conversacional, centro: tema.alinhamento === 'centro' }" :style="estilo">
+    <div v-if="!encerrado && tema.mostrarProgresso" class="f-progresso"><div :style="{ width: progresso + '%' }"></div></div>
+
+    <!-- Capa: no clássico fica sempre no topo; no conversacional, só nas telas de início e fim -->
+    <div v-if="capa && (!conversacional || etapa < 0 || enviado || encerrado)" class="f-capa" :style="{ backgroundImage: `url(&quot;${capa}&quot;)` }"></div>
 
     <!-- Pesquisa encerrada -->
     <div v-if="encerrado" class="f-centro">
-      <div class="f-cartao f-final">
-        <img v-if="tema.logo" :src="tema.logo" alt="" class="f-logo" />
+      <div class="f-cartao f-final f-conteudo">
+        <img v-if="logo" :src="logo" alt="" class="f-logo" />
         <div class="f-icone-final">🔒</div>
         <h1>{{ formulario.titulo }}</h1>
         <p>Esta pesquisa não está mais recebendo respostas. Obrigado pelo interesse!</p>
@@ -237,24 +274,30 @@ watch(conversacional, () => {
 
     <!-- Enviado -->
     <div v-else-if="enviado" class="f-centro">
-      <div class="f-cartao f-final">
-        <img v-if="tema.logo" :src="tema.logo" alt="" class="f-logo" />
+      <div class="f-cartao f-final f-conteudo">
+        <img v-if="logo" :src="logo" alt="" class="f-logo" />
         <div class="f-check">✓</div>
         <h1>{{ formulario.mensagemFinal || 'Obrigado! Sua resposta foi registrada.' }}</h1>
+        <a v-if="linkFinal" :href="linkFinal" class="f-botao f-link-final" target="_top" rel="noopener">
+          {{ tema.textoLinkFinal || 'Continuar' }} →
+        </a>
+        <p v-if="linkFinal && tema.redirecionar" class="f-tempo">
+          {{ previa ? 'No link público, a pessoa é levada para lá depois de 3 segundos.' : 'Redirecionando em instantes...' }}
+        </p>
         <button v-if="previa" type="button" class="f-botao secundario" @click="recomecar">Recomeçar prévia</button>
       </div>
     </div>
 
     <!-- ===== Modo conversacional ===== -->
-    <div v-else-if="conversacional" class="f-centro">
+    <div v-else-if="conversacional" class="f-centro" :class="{ 'com-capa': capa && etapa < 0 }">
       <Transition :name="'f-' + direcao" mode="out-in">
         <!-- Boas-vindas -->
-        <div v-if="etapa < 0" key="inicio" class="f-passo f-inicio">
-          <img v-if="tema.logo" :src="tema.logo" alt="" class="f-logo" />
+        <div v-if="etapa < 0" key="inicio" class="f-passo f-inicio f-conteudo">
+          <img v-if="logo" :src="logo" alt="" class="f-logo" :class="{ 'sobre-capa': capa }" />
           <h1>{{ formulario.titulo || 'Pesquisa sem título' }}</h1>
           <p v-if="formulario.descricao" class="f-descricao">{{ formulario.descricao }}</p>
           <div class="f-acoes">
-            <button type="button" class="f-botao" :disabled="!visiveis.length" @click="comecar">Começar</button>
+            <button type="button" class="f-botao" :disabled="!visiveis.length" @click="comecar">{{ tema.textoComecar || 'Começar' }}</button>
             <span class="f-atalho">pressione <b>Enter ↵</b></span>
           </div>
           <p class="f-tempo">⏱ Leva cerca de {{ minutos }} min · {{ formulario.perguntas?.length ?? 0 }} perguntas</p>
@@ -262,8 +305,8 @@ watch(conversacional, () => {
         </div>
 
         <!-- Uma pergunta -->
-        <div v-else-if="atual" :key="atual.id" class="f-passo">
-          <p class="f-numero">{{ etapa + 1 }} <span>→</span> de {{ visiveis.length }}</p>
+        <div v-else-if="atual" :key="atual.id" class="f-passo f-conteudo">
+          <p v-if="tema.mostrarNumeros" class="f-numero">{{ etapa + 1 }} <span>→</span> de {{ visiveis.length }}</p>
           <h2 class="f-titulo">
             {{ atual.titulo || 'Pergunta sem enunciado' }}<span v-if="atual.obrigatoria" class="f-obrigatoria">*</span>
           </h2>
@@ -280,7 +323,7 @@ watch(conversacional, () => {
           />
           <div class="f-acoes">
             <button type="button" class="f-botao" :disabled="enviando" @click="avancar(false)">
-              {{ ultima ? (enviando ? 'Enviando...' : 'Enviar ✓') : 'OK ✓' }}
+              {{ ultima ? (enviando ? 'Enviando...' : `${tema.textoBotao || 'Enviar'} ✓`) : 'OK ✓' }}
             </button>
             <span class="f-atalho" v-if="!previa">
               pressione <b>{{ atual.tipo === 'paragrafo' ? 'Ctrl + Enter' : 'Enter ↵' }}</b>
@@ -297,9 +340,9 @@ watch(conversacional, () => {
     </div>
 
     <!-- ===== Modo clássico ===== -->
-    <div v-else class="f-classico">
-      <header class="f-cartao f-cabecalho">
-        <img v-if="tema.logo" :src="tema.logo" alt="" class="f-logo" />
+    <div v-else class="f-classico f-conteudo" :class="{ 'com-capa': capa }">
+      <header class="f-cartao f-cabecalho" :class="{ 'sem-faixa': capa }">
+        <img v-if="logo" :src="logo" alt="" class="f-logo" :class="{ 'sobre-capa': capa }" />
         <h1>{{ formulario.titulo || 'Pesquisa sem título' }}</h1>
         <p v-if="formulario.descricao" class="f-descricao">{{ formulario.descricao }}</p>
         <p v-if="retomado" class="f-tempo">Suas respostas anteriores foram recuperadas.</p>
@@ -314,7 +357,7 @@ watch(conversacional, () => {
           :class="{ 'com-erro': erros[p.id], foco: previa && perguntaFoco === p.id }"
         >
           <h2 class="f-titulo">
-            <span class="f-num">{{ i + 1 }}.</span> {{ p.titulo || 'Pergunta sem enunciado' }}
+            <span v-if="tema.mostrarNumeros" class="f-num">{{ i + 1 }}.</span> {{ p.titulo || 'Pergunta sem enunciado' }}
             <span v-if="p.obrigatoria" class="f-obrigatoria">*</span>
           </h2>
           <p v-if="p.descricao" class="f-descricao">{{ p.descricao }}</p>
@@ -329,26 +372,38 @@ watch(conversacional, () => {
 
       <div class="f-rodape">
         <button type="button" class="f-botao" :disabled="enviando || !visiveis.length" @click="enviarClassico">
-          {{ enviando ? 'Enviando...' : 'Enviar respostas' }}
+          {{ enviando ? 'Enviando...' : tema.textoBotao || 'Enviar respostas' }}
         </button>
         <span class="f-tempo">{{ respondidas }} de {{ visiveis.length }} respondidas</span>
       </div>
       <p v-if="erroEnvio" class="f-erro-envio">{{ erroEnvio }}</p>
     </div>
+
+    <p v-if="tema.mostrarMarca" class="f-marca">Feito com <b>Central de Pesquisas</b></p>
   </div>
 </template>
 
 <style scoped>
 .f-pagina {
-  position: relative; min-height: 100vh; background: var(--f-fundo); color: var(--f-texto);
-  font-family: var(--f-fonte); transition: background 0.3s, color 0.3s;
+  position: relative; min-height: 100vh; background: var(--f-fundo-pagina); color: var(--f-texto);
+  font-family: var(--f-fonte); transition: color 0.3s; display: flex; flex-direction: column;
 }
 .f-pagina.previa { min-height: 100%; height: 100%; overflow-y: auto; }
-.f-progresso { position: sticky; top: 0; height: 4px; background: var(--f-suave); z-index: 2; }
+.f-conteudo { zoom: var(--f-escala); text-align: var(--f-alinhamento); }
+.f-progresso { position: sticky; top: 0; height: 4px; background: var(--f-suave); z-index: 2; flex: none; }
 .f-progresso div { height: 100%; background: var(--f-primaria); transition: width 0.4s ease; }
 
+/* Capa (imagem do topo) */
+.f-capa { height: var(--f-capa-altura); flex: none; background-size: cover; background-position: center; }
+
 .f-cartao { background: var(--f-cartao); border: 1px solid var(--f-borda); border-radius: calc(var(--f-cantos) + 4px); padding: 28px; }
-.f-logo { max-height: 56px; max-width: 200px; object-fit: contain; margin-bottom: 18px; display: block; }
+.f-logo { height: var(--f-logo-altura); max-width: 240px; object-fit: contain; margin-bottom: 18px; display: block; }
+.centro .f-logo { margin-left: auto; margin-right: auto; }
+.f-logo.sobre-capa {
+  margin-top: calc(-28px - var(--f-logo-altura) / 2); background: var(--f-cartao); padding: 6px;
+  border-radius: calc(var(--f-cantos) / 1.5); box-shadow: 0 4px 14px #0000001f; box-sizing: content-box;
+}
+h1, .f-titulo { font-family: var(--f-fonte-titulo); }
 h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
 .f-descricao { opacity: 0.75; margin: 0 0 14px; line-height: 1.5; white-space: pre-line; }
 .f-titulo { font-size: 1.25rem; font-weight: 600; line-height: 1.35; margin: 0 0 8px; }
@@ -356,22 +411,25 @@ h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
 .f-tempo { font-size: 0.85rem; opacity: 0.6; margin: 10px 0 0; }
 
 .f-botao {
-  font: inherit; font-weight: 700; font-size: 1rem; cursor: pointer; padding: 12px 24px;
-  background: var(--f-primaria); color: var(--f-sobre-primaria); border: 0; border-radius: var(--f-cantos);
-  transition: filter 0.15s, transform 0.1s; box-shadow: 0 4px 14px var(--f-suave);
+  display: inline-block; font: inherit; font-weight: 700; font-size: 1rem; cursor: pointer; padding: 12px 24px; text-decoration: none;
+  background: var(--f-botao-fundo); color: var(--f-botao-texto); border: 2px solid var(--f-botao-borda); border-radius: var(--f-cantos);
+  transition: filter 0.15s, transform 0.1s, background 0.15s; box-shadow: 0 4px 14px var(--f-suave);
 }
 .f-botao:hover { filter: brightness(1.08); }
 .f-botao:active { transform: translateY(1px); }
 .f-botao:disabled { opacity: 0.5; cursor: not-allowed; }
-.f-botao.secundario { background: transparent; color: var(--f-primaria); border: 1.5px solid var(--f-primaria); box-shadow: none; margin-top: 18px; }
+.f-botao.secundario { background: transparent; color: var(--f-primaria); border-color: var(--f-primaria); box-shadow: none; margin-top: 18px; }
+.f-link-final { margin-top: 8px; }
 .f-acoes { display: flex; align-items: center; gap: 14px; margin-top: 22px; flex-wrap: wrap; }
+.centro .f-acoes, .centro .f-rodape { justify-content: center; }
 .f-atalho { font-size: 0.82rem; opacity: 0.6; }
 .f-erro-envio { color: #dc2626; font-weight: 600; margin-top: 12px; }
 
 /* Conversacional */
-.f-centro { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 4px); padding: 40px 24px 90px; }
-.previa .f-centro { min-height: calc(100% - 4px); }
-.f-passo { width: 100%; max-width: 640px; }
+.f-centro { flex: 1; display: flex; align-items: center; justify-content: center; padding: 40px 24px 90px; }
+.f-centro.com-capa { align-items: flex-start; }
+.f-passo { width: 100%; max-width: var(--f-largura); }
+.f-centro.com-capa .f-logo.sobre-capa { margin-top: calc(-40px - var(--f-logo-altura) / 2); }
 .f-inicio h1 { font-size: 2.3rem; }
 .f-numero { font-size: 0.9rem; font-weight: 700; color: var(--f-primaria); margin: 0 0 8px; }
 .f-numero span { margin: 0 2px; }
@@ -393,8 +451,10 @@ h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
 .f-tras-leave-to { opacity: 0; transform: translateY(40px); }
 
 /* Clássico */
-.f-classico { max-width: 720px; margin: 0 auto; padding: 32px 20px 60px; display: flex; flex-direction: column; gap: 14px; }
+.f-classico { width: 100%; max-width: calc(var(--f-largura) + 40px); margin: 0 auto; padding: 32px 20px 40px; display: flex; flex-direction: column; gap: 14px; flex: 1; }
+.f-classico.com-capa { margin-top: -60px; position: relative; }
 .f-cabecalho { border-top: 8px solid var(--f-primaria); }
+.f-cabecalho.sem-faixa { border-top-width: 1px; }
 .f-pergunta { transition: border-color 0.2s, box-shadow 0.2s; padding: 22px 24px; }
 .f-pergunta.com-erro { border-color: #dc2626; }
 .f-pergunta.foco { box-shadow: 0 0 0 3px var(--f-primaria); }
@@ -416,9 +476,14 @@ h1 { font-size: 1.9rem; line-height: 1.2; margin: 0 0 8px; }
 .f-icone-final { font-size: 2.6rem; margin-bottom: 10px; }
 @keyframes surgir { from { transform: scale(0); } }
 
+/* Rodapé da marca */
+.f-marca { text-align: center; font-size: 0.75rem; opacity: 0.55; margin: 0; padding: 14px; flex: none; }
+.conversacional .f-marca { position: absolute; left: 20px; bottom: 20px; padding: 0; line-height: 38px; }
+
 @media (max-width: 600px) {
   .f-cartao { padding: 20px; }
   h1, .f-inicio h1 { font-size: 1.6rem; }
   .conversacional .f-titulo { font-size: 1.3rem; }
+  .conversacional .f-marca { position: static; padding: 14px; }
 }
 </style>

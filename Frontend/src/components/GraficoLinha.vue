@@ -1,51 +1,76 @@
 <script setup>
-// Gráfico de área (respostas por dia) em SVG. pontos: [{ rotulo, valor }]
+// Gráfico de linha/área em SVG. pontos: [{ rotulo, valor, total? }]
+// Aceita valores negativos (ex.: NPS -30) e pontos sem dado (valor null: a linha fica interrompida).
 import { computed, ref } from 'vue';
 
 const props = defineProps({
   pontos: { type: Array, required: true },
   cor: { type: String, default: '#6d28d9' },
+  sufixo: { type: String, default: '' },
+  minimo: { type: Number, default: null }, // fixa a escala (ex.: -100 a 100 no NPS)
+  maximo: { type: Number, default: null },
+  area: { type: Boolean, default: true },
 });
 
 const LARGURA = 600;
 const ALTURA = 180;
 const MARGEM = 24;
 const sobre = ref(null);
+const uid = Math.random().toString(36).slice(2, 7);
 
-const maior = computed(() => Math.max(1, ...props.pontos.map((p) => p.valor)));
+const valores = computed(() => props.pontos.map((p) => p.valor).filter((v) => v !== null && v !== undefined));
+const menor = computed(() => props.minimo ?? Math.min(0, ...valores.value));
+const maior = computed(() => props.maximo ?? Math.max(1, ...valores.value));
+const y = (v) => ALTURA - MARGEM - ((v - menor.value) / (maior.value - menor.value || 1)) * (ALTURA - MARGEM * 2);
+const yZero = computed(() => y(Math.max(menor.value, 0)));
+
 const coordenadas = computed(() => {
   const passo = props.pontos.length > 1 ? (LARGURA - MARGEM * 2) / (props.pontos.length - 1) : 0;
   return props.pontos.map((p, i) => ({
     ...p,
     x: MARGEM + i * passo,
-    y: ALTURA - MARGEM - (p.valor / maior.value) * (ALTURA - MARGEM * 2),
+    y: p.valor === null || p.valor === undefined ? null : y(p.valor),
   }));
 });
-const linha = computed(() => coordenadas.value.map((c, i) => `${i ? 'L' : 'M'}${c.x},${c.y}`).join(' '));
-const area = computed(() => {
-  const c = coordenadas.value;
-  if (!c.length) return '';
-  return `${linha.value} L${c[c.length - 1].x},${ALTURA - MARGEM} L${c[0].x},${ALTURA - MARGEM} Z`;
+
+// Trechos contínuos (sem pontos vazios no meio)
+const trechos = computed(() => {
+  const lista = [];
+  let atual = [];
+  for (const c of coordenadas.value) {
+    if (c.y === null) {
+      if (atual.length) lista.push(atual);
+      atual = [];
+    } else atual.push(c);
+  }
+  if (atual.length) lista.push(atual);
+  return lista;
 });
+const linha = (t) => t.map((c, i) => `${i ? 'L' : 'M'}${c.x},${c.y}`).join(' ');
+const preenchimento = (t) => `${linha(t)} L${t[t.length - 1].x},${yZero.value} L${t[0].x},${yZero.value} Z`;
+
 // Mostra só alguns rótulos para não amontoar
 const cadaQuantos = computed(() => Math.ceil(props.pontos.length / 7));
 </script>
 
 <template>
   <div class="linha-grafico">
-    <svg :viewBox="`0 0 ${LARGURA} ${ALTURA}`" role="img" aria-label="Respostas por dia">
+    <svg :viewBox="`0 0 ${LARGURA} ${ALTURA}`" role="img" aria-label="Gráfico de linha">
       <defs>
-        <linearGradient id="degrade-area" x1="0" y1="0" x2="0" y2="1">
+        <linearGradient :id="`degrade-${uid}`" x1="0" y1="0" x2="0" y2="1">
           <stop offset="0%" :stop-color="cor" stop-opacity="0.35" />
           <stop offset="100%" :stop-color="cor" stop-opacity="0" />
         </linearGradient>
       </defs>
-      <line :x1="MARGEM" :x2="LARGURA - MARGEM" :y1="ALTURA - MARGEM" :y2="ALTURA - MARGEM" stroke="#e5e7eb" />
-      <path :d="area" fill="url(#degrade-area)" />
-      <path :d="linha" fill="none" :stroke="cor" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke" />
+      <line :x1="MARGEM" :x2="LARGURA - MARGEM" :y1="yZero" :y2="yZero" stroke="#e5e7eb" />
+      <text v-if="menor < 0" :x="2" :y="yZero + 4" font-size="10" fill="#9ca3af">0</text>
+      <template v-for="(t, i) in trechos" :key="i">
+        <path v-if="area && t.length > 1" :d="preenchimento(t)" :fill="`url(#degrade-${uid})`" />
+        <path :d="linha(t)" fill="none" :stroke="cor" stroke-width="2.5" stroke-linejoin="round" />
+      </template>
       <g v-for="(c, i) in coordenadas" :key="i">
         <rect :x="c.x - 14" :y="0" :width="28" :height="ALTURA" fill="transparent" @mouseenter="sobre = i" @mouseleave="sobre = null" />
-        <circle v-if="sobre === i || c.valor > 0" :cx="c.x" :cy="c.y" :r="sobre === i ? 5 : 3" :fill="cor" />
+        <circle v-if="c.y !== null && (sobre === i || c.valor !== 0)" :cx="c.x" :cy="c.y" :r="sobre === i ? 5 : 3" :fill="cor" />
       </g>
     </svg>
     <div class="eixo">
@@ -54,7 +79,11 @@ const cadaQuantos = computed(() => Math.ceil(props.pontos.length / 7));
       </span>
     </div>
     <div v-if="sobre !== null" class="dica" :style="{ left: (coordenadas[sobre].x / LARGURA) * 100 + '%' }">
-      <b>{{ pontos[sobre].valor }}</b> em {{ pontos[sobre].rotulo }}
+      <template v-if="pontos[sobre].valor === null || pontos[sobre].valor === undefined">sem respostas em {{ pontos[sobre].rotulo }}</template>
+      <template v-else>
+        <b>{{ pontos[sobre].valor }}{{ sufixo }}</b> em {{ pontos[sobre].rotulo }}
+        <span v-if="pontos[sobre].total !== undefined"> · {{ pontos[sobre].total }} resp.</span>
+      </template>
     </div>
   </div>
 </template>

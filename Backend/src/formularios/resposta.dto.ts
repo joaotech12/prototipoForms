@@ -1,5 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
-import { IsInt, IsObject, IsOptional, Max, Min } from 'class-validator';
+import { IsInt, IsObject, IsOptional, IsUUID, Max, Min } from 'class-validator';
 
 // O que o site público envia quando alguém termina de responder
 export class RespostaDto {
@@ -13,4 +13,9 @@ export class RespostaDto {
   @Min(0)
   @Max(86400)
   duracaoSegundos?: number;
+
+  @ApiPropertyOptional({ description: 'Código da visita (marca a sessão do funil como concluída)' })
+  @IsOptional()
+  @IsUUID('4', { message: 'Sessão inválida' })
+  sessao?: string;
 }

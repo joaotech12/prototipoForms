@@ -147,11 +147,28 @@ export const perguntasDeGrupo = (perguntas) => perguntas.filter((p) => TIPOS_DE_
 
 // ---------- Insights automáticos ----------
 // Frases curtas apontando o que merece atenção. tipo: 'alerta' | 'bom' | 'info'
-export function gerarInsights(formulario, respostas) {
+// extras (opcional): { funil, calor } calculados por calcularFunil() e mapaDeCalor()
+export function gerarInsights(formulario, respostas, extras = {}) {
   const lista = [];
   const total = respostas.length;
+  const { funil, calor } = extras;
+
+  // Onde as pessoas desistem (funciona mesmo antes da primeira resposta completa)
+  if (funil && funil.incompletas >= 5 && funil.abandonos.length) {
+    const pior = funil.abandonos[0];
+    const parte = pct(pior.total, funil.total);
+    if (parte >= 10) {
+      lista.push({ tipo: 'alerta', texto: `${parte}% das visitas desistem em "${pior.titulo}". Vale simplificar essa pergunta ou torná-la opcional.` });
+    }
+  }
+
   if (total === 0) {
-    return [{ tipo: 'info', texto: 'Ainda não há respostas. Copie o link no Painel e envie para os seus clientes.' }];
+    lista.push({ tipo: 'info', texto: 'Ainda não há respostas completas. Copie o link no Painel e envie para os seus clientes.' });
+    return lista;
+  }
+
+  if (calor?.melhor && total >= 10) {
+    lista.push({ tipo: 'info', texto: `A maioria das respostas chega ${calor.melhor}. Bom momento para enviar ou reenviar o link.` });
   }
 
   // Taxa de conclusão
@@ -243,5 +260,148 @@ export function gerarInsights(formulario, respostas) {
     lista.push({ tipo: 'alerta', texto: `As pessoas levam em média ${Math.round(tempoMedio / 60)} minutos para responder. Pesquisas curtas têm mais respostas.` });
   }
 
-  return lista.slice(0, 8);
+  return lista.slice(0, 10);
+}
+
+// ======================================================================================
+// Etapa 3: filtros combinados, funil de abandono, horários de pico, evolução e comparação
+// ======================================================================================
+
+const DIA = 86400000;
+
+// No NPS dá para filtrar pelo grupo inteiro, além da nota exata
+export const GRUPOS_NPS = { Promotores: [9, 10], Neutros: [7, 8], Detratores: [0, 6] };
+
+// Opções que aparecem no "Filtrar por resposta..."
+export function opcoesDeFiltro(pergunta) {
+  if (pergunta.tipo === 'nps') return Object.keys(GRUPOS_NPS);
+  return opcoesDaPergunta(pergunta);
+}
+
+function combina(pergunta, valor, filtro) {
+  if (!estaRespondida(valor)) return false;
+  if (pergunta?.tipo === 'nps' && GRUPOS_NPS[filtro]) {
+    const [de, ate] = GRUPOS_NPS[filtro];
+    return Number(valor) >= de && Number(valor) <= ate;
+  }
+  return Array.isArray(valor) ? valor.map(String).includes(filtro) : String(valor) === filtro;
+}
+
+// Filtros da mesma pergunta valem como "OU" (Pro ou Empresa); de perguntas diferentes, "E"
+export function aplicarFiltros(respostas, filtros, perguntas) {
+  if (!filtros.length) return respostas;
+  const porPergunta = new Map();
+  for (const f of filtros) porPergunta.set(f.perguntaId, [...(porPergunta.get(f.perguntaId) ?? []), f.valor]);
+  return respostas.filter((r) =>
+    [...porPergunta.entries()].every(([id, valores]) => {
+      const pergunta = perguntas.find((p) => p.id === id);
+      return valores.some((v) => combina(pergunta, r.dados?.[id], v));
+    }),
+  );
+}
+
+// Respostas (ou sessões) dentro de uma janela de tempo: [agora - (deslocamento + dias), agora - deslocamento)
+export function naJanela(lista, dias, deslocamento = 0, campo = 'criadoEm') {
+  if (!dias) return lista;
+  const fim = Date.now() - deslocamento * DIA;
+  const inicio = fim - dias * DIA;
+  return lista.filter((r) => {
+    const t = new Date(r[campo]).getTime();
+    return t >= inicio && t < fim;
+  });
+}
+
+// ---------- Funil de abandono ----------
+// sessoes: [{ perguntas: [ids respondidos], concluida }]
+export function calcularFunil(perguntas, sessoes) {
+  const total = sessoes.length;
+  const concluidas = sessoes.filter((s) => s.concluida).length;
+  const etapas = perguntas.map((p, i) => {
+    const alcancaram = sessoes.filter((s) => s.perguntas.includes(p.id)).length;
+    return { pergunta: p, indice: i, alcancaram, pct: pct(alcancaram, total), condicional: (p.condicoes ?? []).length > 0 };
+  });
+
+  // Onde parou quem não terminou: na pergunta seguinte à última que respondeu
+  const contagem = new Map();
+  for (const s of sessoes.filter((x) => !x.concluida)) {
+    const ultima = Math.max(-1, ...s.perguntas.map((id) => perguntas.findIndex((p) => p.id === id)));
+    const parou = perguntas[ultima + 1];
+    const chave = parou?.id ?? '__fim';
+    contagem.set(chave, (contagem.get(chave) ?? 0) + 1);
+  }
+  const abandonos = [...contagem.entries()]
+    .map(([id, qtd]) => {
+      const p = perguntas.find((x) => x.id === id);
+      const indice = perguntas.indexOf(p);
+      return {
+        perguntaId: id,
+        titulo: p ? `${indice + 1}. ${p.titulo}` : 'No botão de enviar',
+        total: qtd,
+        pct: pct(qtd, total),
+        semResponder: indice === 0, // abriu e não respondeu nem a primeira
+      };
+    })
+    .sort((a, b) => b.total - a.total);
+
+  return { total, concluidas, incompletas: total - concluidas, taxa: total ? pct(concluidas, total) : null, etapas, abandonos };
+}
+
+// ---------- Horários de pico: dia da semana × hora ----------
+export const DIAS_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const DIAS_EXTENSO = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quinta-feira', 'sexta-feira', 'sábado'];
+
+export function mapaDeCalor(respostas) {
+  const grade = Array.from({ length: 7 }, () => Array(24).fill(0));
+  for (const r of respostas) {
+    const d = new Date(r.criadoEm);
+    grade[d.getDay()][d.getHours()]++;
+  }
+  const maior = Math.max(0, ...grade.flat());
+  const porDia = grade.map((horas) => horas.reduce((a, b) => a + b, 0));
+  const porHora = Array.from({ length: 24 }, (_, h) => grade.reduce((s, horas) => s + horas[h], 0));
+
+  let melhor = '';
+  if (respostas.length) {
+    const dia = porDia.indexOf(Math.max(...porDia));
+    // Janela de 2 horas: começa no horário com mais respostas e se estende para o vizinho mais movimentado
+    const pico = porHora.indexOf(Math.max(...porHora));
+    const antes = porHora[(pico + 23) % 24];
+    const depois = porHora[(pico + 1) % 24];
+    const inicio = antes > depois ? (pico + 23) % 24 : pico;
+    melhor = `na ${DIAS_EXTENSO[dia]}, entre ${inicio}h e ${(inicio + 2) % 24}h`;
+  }
+  return { grade, maior, porDia, porHora, melhor };
+}
+
+// ---------- Evolução semanal de uma métrica (NPS, CSAT ou média) ----------
+export function evolucaoSemanal(pergunta, respostas, semanas = 12) {
+  const hoje = new Date();
+  hoje.setHours(23, 59, 59, 999);
+  const pontos = [];
+  for (let i = semanas - 1; i >= 0; i--) {
+    const fim = hoje.getTime() - i * 7 * DIA;
+    const inicio = fim - 7 * DIA;
+    const daSemana = respostas.filter((r) => {
+      const t = new Date(r.criadoEm).getTime();
+      return t > inicio && t <= fim && estaRespondida(r.dados?.[pergunta.id]);
+    });
+    const rotulo = new Date(inicio + DIA).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
+    pontos.push({ rotulo, valor: daSemana.length ? valorDaMetrica(pergunta, daSemana) : null, total: daSemana.length });
+  }
+  return pontos;
+}
+
+// ---------- Comparação com o período anterior ----------
+// tipo: 'pct' (variação %, ex.: respostas) ou 'pontos' (diferença, ex.: NPS). menorMelhor: ex.: tempo
+export function variacao(atual, anterior, tipo = 'pct', menorMelhor = false) {
+  if (atual === null || anterior === null || atual === undefined || anterior === undefined) return null;
+  let valor;
+  if (tipo === 'pontos') valor = Math.round(atual - anterior);
+  else if (anterior === 0) return atual > 0 ? { texto: 'novo', classe: 'bom' } : null;
+  else valor = Math.round(((atual - anterior) / anterior) * 100);
+  if (valor === 0) return { texto: '= igual', classe: 'neutro' };
+  const subiu = valor > 0;
+  const bom = menorMelhor ? !subiu : subiu;
+  const unidade = tipo === 'pontos' ? ' pts' : '%';
+  return { texto: `${subiu ? '▲' : '▼'} ${Math.abs(valor)}${unidade}`, classe: bom ? 'bom' : 'ruim' };
 }

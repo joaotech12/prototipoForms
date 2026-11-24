@@ -183,13 +183,15 @@ defineExpose({ atalho, focar });
 <style scoped>
 .campo-pergunta { display: flex; flex-direction: column; gap: 10px; }
 
+/* Estilo vem do tema: "caixa" (borda inteira) ou "linha" (só embaixo) — ver variaveisDoTema() */
 .f-entrada {
-  width: 100%; font: inherit; font-size: 1.05rem; color: var(--f-texto);
-  background: var(--f-cartao); border: 1.5px solid var(--f-borda); border-radius: var(--f-cantos);
-  padding: 12px 14px; transition: border-color 0.15s, box-shadow 0.15s;
+  width: 100%; font: inherit; font-size: 1.05rem; color: var(--f-campo-texto);
+  background: var(--f-campo-fundo); border: solid var(--f-borda); border-width: var(--f-campo-bordas);
+  border-radius: var(--f-campo-raio); padding: var(--f-campo-recuo); transition: border-color 0.15s, box-shadow 0.15s;
 }
 .f-entrada:focus { outline: none; border-color: var(--f-primaria); box-shadow: 0 0 0 4px var(--f-suave); }
-.f-entrada::placeholder { color: var(--f-texto); opacity: 0.4; }
+.f-entrada::placeholder { color: var(--f-campo-texto); opacity: 0.4; }
+select.f-entrada option { color: #111827; background: #fff; }
 textarea.f-entrada { resize: vertical; min-height: 110px; }
 select.f-entrada { cursor: pointer; }
 
@@ -198,8 +200,8 @@ select.f-entrada { cursor: pointer; }
 .f-opcoes.lado .f-opcao { flex: 1; min-width: 130px; }
 .f-opcao {
   display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
-  font: inherit; font-size: 1rem; color: var(--f-texto); cursor: pointer;
-  background: var(--f-cartao); border: 1.5px solid var(--f-borda); border-radius: var(--f-cantos);
+  font: inherit; font-size: 1rem; color: var(--f-opcao-texto); cursor: pointer;
+  background: var(--f-opcao-fundo); border: 1.5px solid var(--f-borda); border-radius: var(--f-cantos);
   padding: 11px 14px; transition: border-color 0.15s, background 0.15s, transform 0.1s;
 }
 .f-opcao:hover { border-color: var(--f-primaria); }
@@ -221,7 +223,7 @@ select.f-entrada { cursor: pointer; }
 .f-nps-botoes { display: grid; grid-template-columns: repeat(11, 1fr); gap: 6px; }
 .f-nota {
   aspect-ratio: 1; min-width: 0; font: inherit; font-weight: 700; font-size: 1rem; cursor: pointer;
-  color: var(--f-texto); background: var(--f-cartao); border: 1.5px solid var(--f-borda); border-radius: var(--f-cantos);
+  color: var(--f-opcao-texto); background: var(--f-opcao-fundo); border: 1.5px solid var(--f-borda); border-radius: var(--f-cantos);
   transition: all 0.15s;
 }
 .f-nota:hover { border-color: var(--f-primaria); transform: translateY(-2px); }
@@ -231,7 +233,7 @@ select.f-entrada { cursor: pointer; }
 .f-csat { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
 .f-rosto {
   display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 4px; cursor: pointer;
-  font: inherit; color: var(--f-texto); background: var(--f-cartao); border: 1.5px solid var(--f-borda);
+  font: inherit; color: var(--f-opcao-texto); background: var(--f-opcao-fundo); border: 1.5px solid var(--f-borda);
   border-radius: var(--f-cantos); transition: all 0.2s;
 }
 .f-rosto .emoji { font-size: 2rem; transition: transform 0.2s; }

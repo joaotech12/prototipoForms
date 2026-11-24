@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { FormulariosModule } from './formularios/formularios.module';
 import { ProdutosModule } from './produtos/produtos.module';
+import { PastasModule } from './pastas/pastas.module';
+import { TemasModule } from './temas/temas.module';
 
 // Sem os dados do banco a API não tem como funcionar: avisa logo na subida
 const obrigatorias = ['DB_HOST', 'DB_USER', 'DB_PASSWORD', 'DB_NAME'];
@@ -28,6 +30,8 @@ if (faltando.length > 0) {
     }),
     ProdutosModule,
     FormulariosModule,
+    TemasModule,
+    PastasModule,
   ],
 })
 export class AppModule {}

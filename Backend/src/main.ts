@@ -35,7 +35,7 @@ async function iniciar() {
 async function conferirTabelas(banco: DataSource) {
   const linhas: Record<string, string>[] = await banco.query('SHOW TABLES');
   const existentes = new Set(linhas.map((linha) => Object.values(linha)[0]));
-  const faltam = ['produtos', 'formularios', 'respostas'].filter((t) => !existentes.has(t));
+  const faltam = ['produtos', 'pastas', 'formularios', 'respostas', 'sessoes', 'temas'].filter((t) => !existentes.has(t));
   if (faltam.length) {
     console.warn(`ATENÇÃO: faltam as tabelas ${faltam.join(', ')}. Rode banco/schema.sql no phpMyAdmin do alwaysdata.`);
   }

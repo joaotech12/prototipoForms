@@ -11,7 +11,10 @@ import {
 } from '@nestjs/swagger';
 import { Response } from 'express';
 import { ExportacaoService } from './exportacao.service';
-import { FormularioDto } from './formulario.dto';
+import { ProgressoDto, SegmentosDto } from './analise.dto';
+import { FormularioDto, LoteDto } from './formulario.dto';
+import { Sessao } from './sessao.entity';
+import { SessoesService } from './sessoes.service';
 import { Formulario } from './formulario.entity';
 import { FormulariosService } from './formularios.service';
 import { RespostaDto } from './resposta.dto';
@@ -25,6 +28,7 @@ export class FormulariosController {
     private readonly formularios: FormulariosService,
     private readonly respostas: RespostasService,
     private readonly exportacao: ExportacaoService,
+    private readonly sessoes: SessoesService,
   ) {}
 
   @Get()
@@ -48,6 +52,15 @@ export class FormulariosController {
   @ApiBadRequestResponse({ description: 'Dados inválidos' })
   criar(@Body() dados: FormularioDto) {
     return this.formularios.criar(dados);
+  }
+
+  @Post('lote')
+  @HttpCode(200)
+  @ApiOperation({ summary: 'Ação em várias pesquisas de uma vez (mover, etiquetar, arquivar, favoritar, encerrar, excluir)' })
+  @ApiOkResponse({ description: '{ afetadas: número de pesquisas alteradas }' })
+  @ApiBadRequestResponse({ description: 'Ação ou dados inválidos' })
+  lote(@Body() dados: LoteDto) {
+    return this.formularios.lote(dados);
   }
 
   @Post(':id/duplicar')
@@ -82,6 +95,31 @@ export class FormulariosController {
   @ApiNoContentResponse({ description: 'Contada' })
   registrarVisualizacao(@Param('id', ParseIntPipe) id: number) {
     return this.formularios.registrarVisualizacao(id);
+  }
+
+  @Post(':id/progresso')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Registra até onde uma visita chegou (funil de abandono)' })
+  @ApiNoContentResponse({ description: 'Registrado' })
+  @ApiBadRequestResponse({ description: 'Sessão inválida' })
+  registrarProgresso(@Param('id', ParseIntPipe) id: number, @Body() dados: ProgressoDto) {
+    return this.sessoes.registrar(id, dados);
+  }
+
+  @Get(':id/sessoes')
+  @ApiOperation({ summary: 'Lista as visitas do link (perguntas respondidas e se concluiu), para o funil' })
+  @ApiOkResponse({ type: [Sessao] })
+  async listarSessoes(@Param('id', ParseIntPipe) id: number) {
+    await this.formularios.buscar(id);
+    return this.sessoes.listar(id);
+  }
+
+  @Put(':id/segmentos')
+  @ApiOperation({ summary: 'Salva os segmentos do dashboard (substitui a lista inteira)' })
+  @ApiOkResponse({ description: 'Lista de segmentos salva' })
+  @ApiBadRequestResponse({ description: 'Segmento inválido' })
+  salvarSegmentos(@Param('id', ParseIntPipe) id: number, @Body() corpo: SegmentosDto) {
+    return this.formularios.salvarSegmentos(id, corpo.segmentos);
   }
 
   @Get(':id/respostas')

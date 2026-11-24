@@ -1,5 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Column, Entity, PrimaryGeneratedColumn } from 'typeorm';
+import { SegmentoDto } from './analise.dto';
 import { MODOS, PerguntaDto, TemaDto } from './formulario.dto';
 
 @Entity('formularios')
@@ -44,6 +45,28 @@ export class Formulario {
   @ApiProperty({ example: 40, description: 'Quantas vezes o link foi aberto' })
   @Column({ type: 'int', default: 0 })
   visualizacoes: number;
+
+  // ----- Organização (Painel): pasta, etiquetas, arquivo e favoritos -----
+
+  @ApiPropertyOptional({ example: 1, nullable: true })
+  @Column({ name: 'pasta_id', type: 'int', nullable: true })
+  pastaId: number | null;
+
+  @ApiProperty({ type: [String], example: ['clientes', '2026'] })
+  @Column({ type: 'simple-json', nullable: true })
+  etiquetas: string[] | null;
+
+  @ApiProperty({ example: false, description: 'Arquivada: some da lista principal, mas nada é apagado' })
+  @Column({ type: 'boolean', default: false })
+  arquivado: boolean;
+
+  @ApiProperty({ example: false })
+  @Column({ type: 'boolean', default: false })
+  favorito: boolean;
+
+  @ApiProperty({ type: [SegmentoDto], description: 'Segmentos salvos no dashboard' })
+  @Column({ type: 'simple-json', nullable: true })
+  segmentos: SegmentoDto[] | null;
 
   @ApiProperty()
   @Column({ name: 'criado_em', type: 'datetime' })

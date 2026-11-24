@@ -52,9 +52,32 @@ export const registrarVisualizacao = (id) => pedir(`/api/formularios/${id}/visua
 
 // ---------- Respostas ----------
 export const listarRespostas = (id) => pedir(`/api/formularios/${id}/respostas`);
-export const enviarResposta = (id, dados, duracaoSegundos) =>
-  pedir(`/api/formularios/${id}/respostas`, { metodo: 'POST', corpo: { dados, duracaoSegundos } });
+export const enviarResposta = (id, dados, duracaoSegundos, sessao) =>
+  pedir(`/api/formularios/${id}/respostas`, { metodo: 'POST', corpo: { dados, duracaoSegundos, sessao } });
+
+// ---------- Funil e segmentos (dashboard) ----------
+// perguntas = ids das perguntas que a pessoa já respondeu nesta visita
+export const registrarProgresso = (id, sessao, perguntas) =>
+  pedir(`/api/formularios/${id}/progresso`, { metodo: 'POST', corpo: { sessao, perguntas } });
+export const listarSessoes = (id) => pedir(`/api/formularios/${id}/sessoes`);
+export const salvarSegmentos = (id, segmentos) => pedir(`/api/formularios/${id}/segmentos`, { metodo: 'PUT', corpo: { segmentos } });
 export const excluirResposta = (id) => pedir(`/api/respostas/${id}`, { metodo: 'DELETE' });
+
+// Ação em várias pesquisas de uma vez: acao = mover | etiquetar | desetiquetar | arquivar | desarquivar |
+// favoritar | desfavoritar | encerrar | reabrir | excluir. extra = { pastaId } ou { etiqueta }
+export const acaoEmLote = (ids, acao, extra = {}) =>
+  pedir('/api/formularios/lote', { metodo: 'POST', corpo: { ids, acao, ...extra } });
+
+// ---------- Pastas ----------
+export const listarPastas = () => pedir('/api/pastas');
+export const criarPasta = (nome, cor) => pedir('/api/pastas', { metodo: 'POST', corpo: { nome, cor } });
+export const alterarPasta = (id, nome, cor) => pedir(`/api/pastas/${id}`, { metodo: 'PUT', corpo: { nome, cor } });
+export const excluirPasta = (id) => pedir(`/api/pastas/${id}`, { metodo: 'DELETE' });
+
+// ---------- Temas salvos ("Meus temas") ----------
+export const listarTemas = () => pedir('/api/temas');
+export const criarTema = (nome, tema) => pedir('/api/temas', { metodo: 'POST', corpo: { nome, tema } });
+export const excluirTema = (id) => pedir(`/api/temas/${id}`, { metodo: 'DELETE' });
 
 // Baixa o Excel gerado pela API (não é JSON, por isso não usa pedir())
 export async function baixarExcel(id, titulo) {

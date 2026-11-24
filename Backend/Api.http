@@ -97,3 +97,106 @@ GET {{api}}/api/formularios/1/exportar
 
 ### Exclui uma resposta
 DELETE {{api}}/api/respostas/1
+
+########## FUNIL E SEGMENTOS (dashboard) ##########
+
+### Registra o progresso de uma visita (o link público faz isso sozinho)
+POST {{api}}/api/formularios/1/progresso
+Content-Type: application/json
+
+{ "sessao": "3f2b8c1e-4d5a-4b6c-9e7f-1a2b3c4d5e6f", "perguntas": ["plano"] }
+
+### Lista as visitas (base do funil de abandono)
+GET {{api}}/api/formularios/1/sessoes
+
+### Envia a resposta e conclui a visita no funil
+POST {{api}}/api/formularios/1/respostas
+Content-Type: application/json
+
+{ "dados": { "plano": "Pro", "nota": 9 }, "duracaoSegundos": 20, "sessao": "3f2b8c1e-4d5a-4b6c-9e7f-1a2b3c4d5e6f" }
+
+### Salva os segmentos do dashboard (substitui a lista inteira)
+PUT {{api}}/api/formularios/1/segmentos
+Content-Type: application/json
+
+{
+  "segmentos": [
+    { "id": "s_pro_det", "nome": "Pro com nota baixa", "periodo": "30",
+      "filtros": [{ "perguntaId": "plano", "valor": "Pro" }, { "perguntaId": "nota", "valor": "Detratores" }] }
+  ]
+}
+
+########## PASTAS ##########
+
+### Lista as pastas (com total de pesquisas)
+GET {{api}}/api/pastas
+
+### Cria uma pasta
+POST {{api}}/api/pastas
+Content-Type: application/json
+
+{ "nome": "Clientes", "cor": "#2563eb" }
+
+### Renomeia / muda a cor
+PUT {{api}}/api/pastas/1
+Content-Type: application/json
+
+{ "nome": "Clientes 2026", "cor": "#059669" }
+
+### Exclui a pasta (as pesquisas dela ficam "sem pasta")
+DELETE {{api}}/api/pastas/1
+
+########## AÇÕES EM LOTE ##########
+
+### Move as pesquisas 1 e 2 para a pasta 1 (pastaId null = tirar da pasta)
+POST {{api}}/api/formularios/lote
+Content-Type: application/json
+
+{ "ids": [1, 2], "acao": "mover", "pastaId": 1 }
+
+### Coloca uma etiqueta (vira minúscula: "Clientes" = "clientes")
+POST {{api}}/api/formularios/lote
+Content-Type: application/json
+
+{ "ids": [1, 2], "acao": "etiquetar", "etiqueta": "Clientes" }
+
+### Arquiva (outras ações: desarquivar, favoritar, desfavoritar, encerrar, reabrir, desetiquetar, excluir)
+POST {{api}}/api/formularios/lote
+Content-Type: application/json
+
+{ "ids": [1], "acao": "arquivar" }
+
+### Ação inválida (deve dar 400)
+POST {{api}}/api/formularios/lote
+Content-Type: application/json
+
+{ "ids": [], "acao": "apagar_tudo" }
+
+########## TEMAS (Meus temas) ##########
+
+### Lista os temas salvos
+GET {{api}}/api/temas
+
+### Salva um tema com personalização avançada
+POST {{api}}/api/temas
+Content-Type: application/json
+
+{
+  "nome": "Marca da empresa",
+  "tema": {
+    "logo": "", "corPrimaria": "#0f766e", "corFundo": "#f0fdfa", "corTexto": "#134e4a",
+    "fonte": "Poppins", "cantos": 16, "fundoTipo": "gradiente", "corFundo2": "#ccfbf1",
+    "estiloCampo": "linha", "estiloBotao": "cheio", "largura": "normal", "alinhamento": "esquerda",
+    "textoBotao": "Enviar", "mostrarProgresso": true, "mostrarNumeros": true, "mostrarMarca": false,
+    "linkFinal": "https://exemplo.com", "textoLinkFinal": "Voltar ao site"
+  }
+}
+
+### Tema inválido (link com javascript: deve dar 400)
+POST {{api}}/api/temas
+Content-Type: application/json
+
+{ "nome": "Teste", "tema": { "corPrimaria": "#000000", "corFundo": "#ffffff", "corTexto": "#000000", "fonte": "Inter", "cantos": 8, "linkFinal": "javascript:alert(1)" } }
+
+### Exclui um tema
+DELETE {{api}}/api/temas/1

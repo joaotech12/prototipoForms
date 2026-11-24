@@ -55,7 +55,36 @@ export const TEMA_PADRAO = {
   corTexto: '#1f2937',
   fonte: 'Inter',
   cantos: 12,
+  // Personalização avançada (a mesma lista de campos está no TemaDto da API)
+  logoPosicao: 'esquerda',
+  logoTamanho: 'm',
+  capa: '',
+  capaAltura: 'media',
+  corCampo: '#ffffff',
+  fundoTipo: 'cor',
+  corFundo2: '#ddd6fe',
+  fundoImagem: '',
+  fundoEscurecer: 30,
+  fonteTitulo: '',
+  tamanhoFonte: 'm',
+  largura: 'normal',
+  alinhamento: 'esquerda',
+  estiloCampo: 'caixa',
+  estiloBotao: 'cheio',
+  textoBotao: '',
+  textoComecar: '',
+  mostrarProgresso: true,
+  mostrarNumeros: true,
+  mostrarMarca: true,
+  linkFinal: '',
+  textoLinkFinal: '',
+  redirecionar: false,
 };
+
+// Pesquisas antigas não têm os campos novos: completa com o padrão
+export function temaCompleto(tema) {
+  return { ...TEMA_PADRAO, ...(tema ?? {}) };
+}
 
 export function novoFormulario() {
   return {
@@ -67,6 +96,8 @@ export function novoFormulario() {
     perguntaRamificacao: null,
     mensagemFinal: 'Obrigado! Sua resposta foi registrada.',
     ativo: true,
+    pastaId: null,
+    etiquetas: [],
   };
 }
 
@@ -81,5 +112,15 @@ export function dadosParaEnvio(f) {
     perguntaRamificacao: f.perguntaRamificacao || null,
     mensagemFinal: f.mensagemFinal ?? '',
     ativo: f.ativo ?? true,
+    pastaId: f.pastaId ?? null,
+    etiquetas: f.etiquetas ?? [],
   };
+}
+
+// Cores sugeridas para as pastas
+export const CORES_PASTA = ['#6d28d9', '#2563eb', '#0891b2', '#059669', '#65a30d', '#d97706', '#dc2626', '#db2777', '#475569'];
+
+// Mesma regra da API: etiqueta sem espaços sobrando, em minúsculas, até 30 letras
+export function limparEtiqueta(texto) {
+  return String(texto ?? '').trim().replace(/\s+/g, ' ').toLowerCase().slice(0, 30);
 }
